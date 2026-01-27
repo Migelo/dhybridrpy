@@ -533,6 +533,194 @@ class Data(BaseProperties):
 
         return ax, line
 
+    def fft_power_1d(
+        self,
+        direction: Literal["x", "y", "z"] = "x",
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Compute 1D FFT power spectra along a chosen direction with statistics.
+
+        Extracts 1D slices along the specified direction, computes FFT power
+        spectrum for each slice, then returns the mean and standard deviation
+        across all slices.
+
+        Args:
+            direction: The direction along which to compute 1D FFTs ("x", "y", or "z").
+
+        Returns:
+            Tuple of (k, power_mean, power_std_lower, power_std_upper) where:
+                - k: 1D array of wavenumber values (in units of 2π/L)
+                - power_mean: 1D array of mean power at each k
+                - power_std_lower: 1D array of (mean - std) power
+                - power_std_upper: 1D array of (mean + std) power
+        """
+        if direction not in ["x", "y", "z"]:
+            raise ValueError("Direction must be 'x', 'y', or 'z'.")
+
+        num_dimensions = len(self._get_data_shape())
+        if num_dimensions < 1 or num_dimensions > 3:
+            raise NotImplementedError("fft_power_1d only supports 1D, 2D, or 3D data.")
+
+        def is_computable(arr):
+            return self.lazy and isinstance(arr, da.Array)
+
+        data = self.data.compute() if is_computable(self.data) else self.data
+
+        # Get box size and grid points along the chosen direction
+        if direction == "x":
+            lim = self.xlimdata.compute() if is_computable(self.xlimdata) else self.xlimdata
+            L = lim[1] - lim[0]
+            n = data.shape[0]
+            axis = 0
+        elif direction == "y":
+            if num_dimensions < 2:
+                raise ValueError("Cannot compute FFT along 'y' for 1D data.")
+            lim = self.ylimdata.compute() if is_computable(self.ylimdata) else self.ylimdata
+            L = lim[1] - lim[0]
+            n = data.shape[1]
+            axis = 1
+        else:  # z
+            if num_dimensions < 3:
+                raise ValueError("Cannot compute FFT along 'z' for 1D or 2D data.")
+            lim = self.zlimdata.compute() if is_computable(self.zlimdata) else self.zlimdata
+            L = lim[1] - lim[0]
+            n = data.shape[2]
+            axis = 2
+
+        # Wavenumber array (positive frequencies only)
+        k_full = np.fft.fftfreq(n, d=L/n) * 2 * np.pi
+        pos_mask = k_full >= 0
+        k = k_full[pos_mask]
+
+        # Reshape data to iterate over slices
+        if num_dimensions == 1:
+            # Only one slice for 1D data
+            slices = [data]
+        elif num_dimensions == 2:
+            if axis == 0:
+                # Slices along x for each y
+                slices = [data[:, j] for j in range(data.shape[1])]
+            else:  # axis == 1
+                # Slices along y for each x
+                slices = [data[i, :] for i in range(data.shape[0])]
+        else:  # 3D
+            if axis == 0:
+                # Slices along x for each (y, z)
+                slices = [data[:, j, k] for j in range(data.shape[1]) for k in range(data.shape[2])]
+            elif axis == 1:
+                # Slices along y for each (x, z)
+                slices = [data[i, :, k] for i in range(data.shape[0]) for k in range(data.shape[2])]
+            else:  # axis == 2
+                # Slices along z for each (x, y)
+                slices = [data[i, j, :] for i in range(data.shape[0]) for j in range(data.shape[1])]
+
+        # Compute power spectrum for each slice
+        power_spectra = []
+        for slice_data in slices:
+            fft_data = np.fft.fft(slice_data)
+            power = np.abs(fft_data) ** 2 / n
+            power = power[pos_mask]
+            # Double power for positive frequencies (except DC)
+            power[1:] *= 2
+            power_spectra.append(power)
+
+        power_spectra = np.array(power_spectra)
+
+        # Compute mean and std across all slices
+        power_mean = np.mean(power_spectra, axis=0)
+        power_std = np.std(power_spectra, axis=0)
+
+        return k, power_mean, power_mean - power_std, power_mean + power_std
+
+    def plot_fft_power_1d(
+        self,
+        direction: Literal["x", "y", "z"] = "x",
+        *,
+        ax: Optional[Axes] = None,
+        dpi: int = 100,
+        title: Optional[str] = None,
+        xlabel: Optional[str] = None,
+        ylabel: Optional[str] = None,
+        xlim: Optional[tuple] = None,
+        ylim: Optional[tuple] = None,
+        loglog: bool = True,
+        fill_alpha: float = 0.3,
+        fill_color: Optional[str] = None,
+        line_color: Optional[str] = None,
+        show_std: bool = True,
+        **kwargs
+    ) -> Tuple[Axes, Line2D]:
+        """
+        Plot 1D FFT power spectrum along a chosen direction with std deviation band.
+
+        Args:
+            direction: The direction along which to compute 1D FFTs ("x", "y", or "z").
+            ax: Matplotlib Axes instance.
+            dpi: Resolution of the plot.
+            title: Plot title.
+            xlabel, ylabel: Axis labels.
+            xlim, ylim: Axis limits.
+            loglog: Whether to use log-log scale (default True).
+            fill_alpha: Alpha (transparency) for the std deviation fill region.
+            fill_color: Color for the fill region. Defaults to match line color.
+            line_color: Color for the mean line.
+            show_std: Whether to show the standard deviation fill region.
+            **kwargs: Additional keyword arguments for the plot function.
+
+        Returns:
+            Tuple of (Axes, Line2D) for the plot.
+        """
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(8, 6), dpi=dpi)
+
+        k, power_mean, power_std_lower, power_std_upper = self.fft_power_1d(direction)
+
+        # Filter out zero/negative values for log plot
+        if loglog:
+            valid = (k > 0) & (power_mean > 0)
+            k_plot = k[valid]
+            power_plot = power_mean[valid]
+            std_lower_plot = np.maximum(power_std_lower[valid], 1e-50)  # Avoid log(0)
+            std_upper_plot = power_std_upper[valid]
+
+            line = ax.loglog(k_plot, power_plot, color=line_color, **kwargs)[0]
+
+            if show_std:
+                fc = fill_color if fill_color else line.get_color()
+                ax.fill_between(
+                    k_plot,
+                    std_lower_plot,
+                    std_upper_plot,
+                    alpha=fill_alpha,
+                    color=fc
+                )
+        else:
+            line = ax.plot(k, power_mean, color=line_color, **kwargs)[0]
+
+            if show_std:
+                fc = fill_color if fill_color else line.get_color()
+                ax.fill_between(
+                    k,
+                    power_std_lower,
+                    power_std_upper,
+                    alpha=fill_alpha,
+                    color=fc
+                )
+
+        default_title = rf"{self.name} 1D power spectrum (along {direction}) at time {round(self.time, self._time_ndecimals)} $\omega_{{ci}}^{{-1}}$"
+        ax.set_title(title if title else default_title)
+        ax.set_xlabel(xlabel if xlabel else r"$k \cdot d_i$")
+        ax.set_ylabel(ylabel if ylabel else r"Power")
+
+        if xlim:
+            ax.set_xlim(xlim)
+        if ylim:
+            ax.set_ylim(ylim)
+
+        ax.grid(True, alpha=0.3)
+
+        return ax, line
+
     def plot_1d_avg(
         self,
         direction: Literal["x", "y", "z"] = "x",
