@@ -557,9 +557,11 @@ A tuple of four numpy arrays:
 | Return Value | Description |
 |--------------|-------------|
 | `k` | 1D array of wavenumber values (in units of 2π/L) |
-| `power_mean` | 1D array of mean power at each k |
-| `power_std_lower` | 1D array of (mean - std) power |
-| `power_std_upper` | 1D array of (mean + std) power |
+| `power_mean` | 1D array of geometric mean power at each k |
+| `power_std_lower` | 1D array of geometric mean / multiplicative std |
+| `power_std_upper` | 1D array of geometric mean × multiplicative std |
+
+Statistics are computed in log space, making the bands symmetric on log-log plots.
 
 #### Example
 
