@@ -38,8 +38,8 @@
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": [
-        "^\\.github/workflows/workflow\\.yml$"
+      "managerFilePatterns": [
+        "/^\\.github/workflows/workflow\\.yml$/"
       ],
       "matchStrings": [
         "PYTHON_MAX:\\s*\"(?<currentValue>\\d+\\.\\d+)\"\\s*#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s+versioning=(?<versioning>\\S+)"
