@@ -23,7 +23,15 @@
       "matchManagers": [
         "pep621"
       ],
-      "groupName": "python dependencies"
+      "groupName": "python dependencies",
+      "rangeStrategy": "widen"
+    },
+    {
+      "matchManagers": [
+        "pip_requirements"
+      ],
+      "groupName": "python requirements",
+      "rangeStrategy": "widen"
     },
     {
       "matchManagers": [
