@@ -68,7 +68,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ${{ fromJson(needs.python-matrix.outputs.versions) }}
-        dependency-resolution: ["lowest-direct", "highest"]
+        dependency-resolution: ["lowest", "highest"]
     steps:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -91,9 +91,26 @@ jobs:
         python -m pip install --upgrade pip
         WHEEL_PATH="$(ls dist/*.whl | head -n 1)"
         uv pip install --python "$(which python)" --resolution "${{ matrix.dependency-resolution }}" "$WHEEL_PATH"
-        uv pip install --python "$(which python)" "ipython>=8,<10" "nbconvert>=7,<8"
+
+    - name: Show resolved runtime versions
+      run: |
+        python - <<'PY'
+        import importlib
+        pkgs = ["h5py", "matplotlib", "numpy", "f90nml", "dask"]
+        for pkg in pkgs:
+            mod = importlib.import_module(pkg)
+            print(f"{pkg}=={getattr(mod, '__version__', 'n/a')}")
+        PY
+
+    - name: Smoke import
+      run: python -c "import dhybridrpy; print(dhybridrpy.__all__)"
+
+    - name: Install notebook tooling
+      if: matrix.dependency-resolution == 'highest'
+      run: uv pip install --python "$(which python)" "ipython>=8,<10" "nbconvert>=7,<8"
 
     - name: Run example notebook
+      if: matrix.dependency-resolution == 'highest'
       run: |
         cd examples
         ipython examples.ipynb
