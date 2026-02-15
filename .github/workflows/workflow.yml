@@ -2,12 +2,43 @@ name: Python Package CI/CD
 
 on: [push, pull_request]
 
+env:
+  PYTHON_MIN: "3.8"
+  PYTHON_MAX: "3.13" # renovate: datasource=python-version depName=python versioning=python
+
 jobs:
+  python-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.matrix.outputs.versions }}
+    steps:
+    - id: matrix
+      run: |
+        python3 - <<'PY'
+        import json
+        import os
+
+        min_version = os.environ["PYTHON_MIN"]
+        max_version = os.environ["PYTHON_MAX"]
+
+        min_major, min_minor = map(int, min_version.split("."))
+        max_major, max_minor = map(int, max_version.split("."))
+        if min_major != max_major:
+            raise ValueError("PYTHON_MIN and PYTHON_MAX must share major version")
+        if min_minor > max_minor:
+            raise ValueError("PYTHON_MIN must be <= PYTHON_MAX")
+
+        versions = [f"{min_major}.{minor}" for minor in range(min_minor, max_minor + 1)]
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+            fh.write(f"versions={json.dumps(versions)}\n")
+        PY
+
   build:
+    needs: python-matrix
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13']
+        python-version: ${{ fromJson(needs.python-matrix.outputs.versions) }}
     steps:
     - uses: actions/checkout@v4
 
@@ -31,11 +62,11 @@ jobs:
         path: dist/
 
   test:
-    needs: build
+    needs: [python-matrix, build]
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13']
+        python-version: ${{ fromJson(needs.python-matrix.outputs.versions) }}
     steps:
     - uses: actions/checkout@v4
 
@@ -53,7 +84,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install ipython nbconvert
+        pip install "ipython>=8,<10" "nbconvert>=7,<8"
         pip install .
 
     - name: Run example notebook
@@ -71,7 +102,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.13'  # Use stable version for publishing
+        python-version: ${{ env.PYTHON_MAX }}
 
     - name: Download all build artifacts
       uses: actions/download-artifact@v4
