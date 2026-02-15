@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 env:
   PYTHON_MIN: "3.8"
-  PYTHON_MAX: "3.13" # renovate: datasource=python-version depName=python versioning=python
+  PYTHON_MAX: "3.14" # renovate: datasource=python-version depName=python versioning=python
 
 jobs:
   python-matrix:
